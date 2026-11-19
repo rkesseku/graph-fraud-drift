@@ -1,4 +1,6 @@
 ---
+bibliography: references.bib
+bibliographystyle: apa
 linkcolor: "#1f4e9e"
 format:
   typst:
@@ -12,6 +14,8 @@ format:
 
 ```{=typst}
 #set text(hyphenate: false)
+#set bibliography(title: "References")
+#show bibliography: set par(justify: false)
 // Three-rule tables (top, below header, bottom) and bold "Figure N" / "Table N" labels
 #set table.hline(stroke: 0.6pt)
 #show table: it => box(stroke: (top: 1pt, bottom: 1pt), it)
@@ -25,6 +29,7 @@ format:
 #let glance(body) = block(fill: rgb("#eef3fb"), stroke: (left: 3pt + rgb("#1f4e9e")), inset: 10pt, radius: 2pt, width: 100%, body)
 // Header: red title, subtitle, author, repository link
 #align(center)[
+  #set par(justify: false)
   #text(size: 17pt, weight: "bold", fill: rgb("#b91c1c"))[Graph Fraud Detection under Concept Drift]
   #v(0.5em)
   #text(size: 12pt, weight: "bold")[Do graph neural networks beat gradient boosting for illicit-transaction detection when the evaluation respects time? A controlled test on the Elliptic Bitcoin graph]
@@ -32,6 +37,8 @@ format:
   #text(size: 11pt)[Reagan Kesseku, Ph.D.]
   #linebreak()
   #text(size: 10pt)[#link("https://github.com/rkesseku/graph-fraud-drift")[github.com/rkesseku/graph-fraud-drift]]
+  #v(0.45em)
+  #text(size: 9.5pt)[#emph[Keywords:] graph neural networks; fraud detection; anti-money laundering; concept drift; temporal evaluation]
 ]
 #v(0.5em)
 ```
@@ -59,7 +66,7 @@ Transactions also form a graph, and graph neural networks (GNNs), which learn fr
 
 ## The data
 
-The Elliptic data set (Weber et al., 2019) is a public graph of Bitcoin transactions. It has 203,769 transactions and 234,355 directed edges, split into 49 time steps about two weeks apart; edges only join transactions in the same step. Each transaction has 93 anonymised local features and 72 features aggregated over its one-hop neighbourhood. 46,564 transactions are labelled: 4,545 illicit (9.8% of labelled) and 42,019 licit. The other 157,205 are unlabelled but remain in the graph, so GNNs can pass messages through them. The original paper notes a dark-market shutdown around step 43, which makes the test period a natural experiment in drift.
+The Elliptic data set [@weber2019] is a public graph of Bitcoin transactions. It has 203,769 transactions and 234,355 directed edges, split into 49 time steps about two weeks apart; edges only join transactions in the same step. Each transaction has 93 anonymised local features and 72 features aggregated over its one-hop neighbourhood. 46,564 transactions are labelled: 4,545 illicit (9.8% of labelled) and 42,019 licit. The other 157,205 are unlabelled but remain in the graph, so GNNs can pass messages through them. The original paper notes a dark-market shutdown around step 43, which makes the test period a natural experiment in drift.
 
 {{< pagebreak >}}
 
@@ -73,8 +80,8 @@ The Elliptic data set (Weber et al., 2019) is a public graph of Bitcoin transact
 
 1. *Temporal split* (`split.py`). Models are fitted on steps 1–29 (26,381 labelled transactions) and validated on 30–34 (3,513). After validation chooses the number of trees or epochs, each model is refit on all of 1–34 (29,894) and tested on 35–49 (16,670 labelled, 1,083 illicit). The time step itself is never used as a feature.
 2. *Graph features* (`graph_features.py`). Log in-, out- and total degree, PageRank, mean neighbour degree, and one- and two-hop neighbourhood means of the local features. None of them reads labels, so computing them over the whole graph cannot leak the target.
-3. *XGBoost* (`boosting.py`). Three feature sets: local only (93), local + aggregated (165), and 165 + the engineered graph features. Each uses early stopping on validation AUPRC, the area under the precision-recall curve, which suits a rare positive class.
-4. *GNNs* (`gnn.py`). Two-layer GraphSAGE (mean aggregator) and GAT (four attention heads), written in plain PyTorch with sparse operations, so the package needs no graph library. They are trained full-batch over all 203k nodes with a class-weighted loss; unlabelled nodes pass messages but never enter the loss.
+3. *XGBoost* [@chen2016xgboost] (`boosting.py`). Three feature sets: local only (93), local + aggregated (165), and 165 + the engineered graph features. Each uses early stopping on validation AUPRC, the area under the precision-recall curve, which suits a rare positive class.
+4. *GNNs* (`gnn.py`). Two-layer GraphSAGE [@hamilton2017] (mean aggregator) and GAT [@velickovic2018] (four attention heads), written in plain PyTorch with sparse operations, so the package needs no graph library. They are trained full-batch over all 203k nodes with a class-weighted loss; unlabelled nodes pass messages but never enter the loss.
 5. *Evaluation* (`metrics.py`). Illicit-class precision, recall, F1 at 0.5 and AUPRC. Cost-optimal thresholds are chosen on validation, assuming a missed illicit transaction costs 10× a false alert. 95% intervals come from 2,000 bootstrap resamples of the 15 test time steps, the natural unit of dependence, pooled over three seeds. Per-step F1 tracks drift.
 
 The test suite builds small synthetic graphs in the same CSV format, so CI runs on Python 3.10–3.12 with no download.
@@ -148,4 +155,3 @@ pytest && ruff check src tests      # synthetic-graph tests, no download
 
 The three Elliptic CSV files go in `data/raw/`; they are not redistributed in the repo.
 
-*Reference.* Weber, M., Domeniconi, G., Chen, J., Weidele, D. K. I., Bellei, C., Robinson, T., & Leiserson, C. E. (2019). Anti-Money Laundering in Bitcoin: Experimenting with Graph Convolutional Networks for Financial Forensics. KDD Workshop on Anomaly Detection in Finance. arXiv:1908.02591.

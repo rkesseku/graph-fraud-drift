@@ -108,7 +108,7 @@ src/graphfraud/
   pipeline.py        end-to-end experiment
   plots.py, cli.py, testing.py (synthetic Elliptic-format data)
 docs/results/        metrics.json, figures, run log
-docs/brief/          5-page project brief (brief.pdf)
+docs/brief/          project brief (brief.pdf)
 ```
 
 ## Reference
