@@ -1,0 +1,22 @@
+[xgb_local] seed=0 f1@0.5=0.787 (33.5s)
+[xgb_local] seed=1 f1@0.5=0.771 (84.2s)
+[xgb_local] seed=2 f1@0.5=0.785 (50.7s)
+[xgb_all] seed=0 f1@0.5=0.812 (198.8s)
+[xgb_all] seed=1 f1@0.5=0.821 (281.6s)
+[xgb_all] seed=2 f1@0.5=0.815 (429.5s)
+[xgb_all_graph] seed=0 f1@0.5=0.796 (109.2s)
+[xgb_all_graph] seed=1 f1@0.5=0.794 (68.0s)
+[xgb_all_graph] seed=2 f1@0.5=0.797 (60.8s)
+C:\Users\rkesseku\GitHub\graph-fraud-drift\src\graphfraud\gnn.py:37: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\SparseCsrTensorImpl.cpp:51.)
+  return coo.to_sparse_csr()  # CSR sparse-dense matmul is markedly faster on CPU
+[sage] seed=0 f1@0.5=0.690 (773.6s)
+[sage] seed=1 f1@0.5=0.670 (615.5s)
+[sage] seed=2 f1@0.5=0.702 (727.2s)
+[gat] seed=0 f1@0.5=0.527 (1749.6s)
+[gat] seed=1 f1@0.5=0.550 (1093.3s)
+[gat] seed=2 f1@0.5=0.522 (620.3s)
+xgb_local      F1 0.781 +/- 0.009  AUPRC 0.783  post-shutdown F1 0.021
+xgb_all        F1 0.816 +/- 0.005  AUPRC 0.801  post-shutdown F1 0.029
+xgb_all_graph  F1 0.796 +/- 0.001  AUPRC 0.792  post-shutdown F1 0.018
+sage           F1 0.687 +/- 0.016  AUPRC 0.671  post-shutdown F1 0.017
+gat            F1 0.533 +/- 0.015  AUPRC 0.539  post-shutdown F1 0.029

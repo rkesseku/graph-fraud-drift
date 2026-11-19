@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+build/
+dist/
+.ipynb_checkpoints/
+.quarto/
+# raw Elliptic data is not redistributed; download it yourself (see README)
+data/raw/
+*.zip
+*.pt
