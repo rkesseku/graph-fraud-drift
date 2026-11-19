@@ -122,6 +122,24 @@ Against the best model, the F1 differences (95% intervals) are: local features o
 
 : Cost per test transaction (missed illicit = 10, false alert = 1), means over three seeds. Both thresholds are chosen on validation steps only: *original* on the 1–29 model, then applied to the refit model; *rolling origin* on one-step-ahead scores of the deployed recipe. Recall and precision are at the rolling-origin threshold for XGBoost and at the original threshold for the GNNs. Bold marks the best value in each column (lowest for costs, highest for recall and precision). † Previous run, not re-run. {#tbl-cost}
 
+## Does tuning help?
+
+An Optuna TPE search [@akiba2019optuna] ran 100 trials per feature set, with trial 0 the fixed recipe. Each trial trained on steps 1–29, early-stopped on 30–34 and maximised validation AUPRC, and the test steps were never read. The tuned recipe then went through the same 3-seed refit and threshold protocol. The search used 12 threads; because XGBoost depends on the thread count, both recipes were also run at the headline's 2 threads.
+
+| Feature set | Recipe (threads) | F1 at 0.5 | AUPRC | Cost at 0.5 | Cost, rolling origin | Cost, original threshold |
+|---------------|----------------------|-------------|--------|---------------|-------------|---------------|
+| 165 | default (2) | **0.817** | 0.800 | **0.1805** | 0.1878 | 0.1966 |
+| 165 | default (12) | 0.526 | 0.777 | 0.3444 | 0.2029 | 0.2213 |
+| 165 | tuned (12) | 0.813 | **0.804** | 0.1827 | **0.1855** | **0.1840** |
+| 165 + graph | default (2) | **0.810** | **0.803** | 0.1878 | **0.1864** | **0.1962** |
+| 165 + graph | tuned (12) | 0.799 | 0.798 | **0.1858** | 0.1955 | 0.1989 |
+| local (93) | default (2) | **0.775** | 0.787 | 0.1986 | 0.2101 | 0.2148 |
+| local (93) | tuned (12) | 0.740 | **0.789** | **0.1893** | **0.2002** | **0.2016** |
+
+: Tuned vs. default XGBoost on test steps 35–49, means over three seeds. Bold marks the best value within each feature set (highest F1 and AUPRC, lowest cost). {#tbl-tuning}
+
+Tuning did not beat the fixed recipe on test, so the headline numbers stay. For the 165-feature model, validation AUPRC rose from 0.931 to 0.993. On test, the change in F1 against the headline default was −0.004 (95% paired time-step interval [−0.009, 0.002]), and cost at 0.5 rose by 0.0023 [0.0001, 0.0051]. With graph features the tuned recipe was worse (F1 −0.011 [−0.020, −0.003]). With local features it raised scale_pos_weight to 4.6, trading F1 (−0.035) for a lower cost at the rolling-origin threshold (−0.0099 [−0.0168, −0.0034]). What tuning did buy is robustness to the thread count. At 12 threads the default 165-feature recipe stopped after 5 trees on one seed (F1 0.000 at 0.5), while the tuned recipe gave F1 0.812–0.814.
+
 # What this demonstrates
 
 *Gradient boosting beat the GNNs, by a wide and statistically clear margin.* With identical inputs and protocol, XGBoost outscored GraphSAGE by 0.13 F1 and GAT by 0.29. The provided features already summarise each transaction's one-hop neighbourhood, and a tree model uses that summary more efficiently than message passing learns it. GAT was also the least stable from step to step.
@@ -139,7 +157,7 @@ Against the best model, the F1 differences (95% intervals) are: local features o
 # Limitations and next steps
 
 - *One dataset, anonymised features.* Elliptic's labels come from heuristics described in the original paper and cover only 23% of transactions. Results may not transfer to card, bank-transfer or other chain data.
-- *No hyperparameter search.* Each model uses one reasonable configuration. A tuned GNN, or a temporal GNN that carries state across steps, might narrow the gap; the repo makes that comparison easy to run.
+- *Limited tuning.* The GNNs use one reasonable configuration; a tuned or temporal GNN might narrow the gap. XGBoost was tuned on five validation steps, which a 100-trial search can overfit; the tuned recipe did not beat the fixed one on test.
 - *Assumed costs.* The 10:1 cost ratio illustrates the method; a real deployment would use the institution's own loss and review-cost estimates.
 - *Threshold selection.* The rolling-origin threshold reuses the tree count selected on the same validation steps, so it is mildly optimistic; the GNNs were not re-run with it. XGBoost results also shift with the thread count, which changes early-stopped tree counts.
 - *Bootstrap assumptions.* Resampling 15 test steps treats them as exchangeable, which understates uncertainty when drift is systematic, as it is here.
@@ -151,6 +169,7 @@ Against the best model, the F1 differences (95% intervals) are: local features o
 pip install -e ".[dev]"            # CPU-only PyTorch is enough
 graphfraud describe --raw-dir data/raw
 graphfraud run-all --raw-dir data/raw --out-dir docs/results
+graphfraud tune --models xgb_all xgb_all_graph xgb_local --n-trials 100 --n-jobs 12
 python docs/brief/make_figures.py
 pytest && ruff check src tests      # synthetic-graph tests, no download
 ```

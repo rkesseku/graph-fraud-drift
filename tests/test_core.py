@@ -12,6 +12,7 @@ from graphfraud.gnn import GATLayer, GraphSAGE, build_graph_inputs, undirected_e
 from graphfraud.graph_features import degrees, graph_features, pagerank, symmetric_adjacency
 from graphfraud.metrics import (
     block_bootstrap_f1,
+    block_bootstrap_paired,
     cost_optimal_threshold,
     counts_by_step,
     expected_cost,
@@ -21,6 +22,7 @@ from graphfraud.metrics import (
 from graphfraud.pipeline import rolling_origin_windows, select_thresholds
 from graphfraud.split import TemporalSplit
 from graphfraud.testing import write_synthetic_elliptic
+from graphfraud.tuning import DEFAULT_TRIAL, tune_xgb
 
 
 @pytest.fixture(scope="module")
@@ -183,3 +185,67 @@ def test_run_all_end_to_end(raw, tmp_path):
     assert res["models"]["xgb_all"]["summary"]["f1_pre_shutdown"]["mean"] > 0.6
     for fig in ("per_step_f1.png", "pr_curves.png", "f1_comparison.png"):
         assert (out / fig).exists()
+
+
+def test_paired_bootstrap_identical_arms_and_cost_direction():
+    rng = np.random.default_rng(0)
+    step = np.repeat(np.arange(1, 7), 50)
+    y = (rng.random(step.size) < 0.2).astype(int)
+    p = np.clip(0.3 * y + rng.random(step.size) * 0.7, 0, 1)
+    arms = {"default": [(p, 0.5)], "same": [(p.copy(), 0.5)], "never": [(np.zeros_like(p), 0.5)]}
+
+    def cost(yy, pp, t):
+        return expected_cost(yy, pp, t, 10.0, 1.0)
+
+    out = block_bootstrap_paired(y, step, arms, "default", cost, n_boot=200)
+    assert out["same"]["diff_vs_reference"] == 0.0 and out["same"]["diff_ci95"] == [0.0, 0.0]
+    assert out["never"]["estimate"] == pytest.approx(10 * y.mean())
+    lo, hi = out["default"]["ci95"]
+    assert lo <= out["default"]["estimate"] <= hi
+
+
+def test_tuning_objective_never_reads_test_rows(raw):
+    pytest.importorskip("optuna")
+    g = load_elliptic(raw, n_local=6)
+    y01 = np.clip(g.y, 0, 1).astype(np.int64)
+    masks = TemporalSplit(val_start=7, train_end=8, dark_market_step=11).masks(g.step, g.y)
+    kw = {"n_trials": 4, "seed": 0, "max_rounds": 40, "early_stopping": 10, "n_jobs": 1,
+          "verbose": False}
+    clean = tune_xgb(g.x, y01, masks, **kw)
+    # Corrupt everything outside the fit and validation blocks (test steps and unlabelled rows):
+    # the search must be unaffected.
+    x_bad, y_bad = g.x.copy(), y01.copy()
+    outside = ~(masks["fit"] | masks["val"])
+    x_bad[outside] = np.nan
+    y_bad[outside] = 1 - y_bad[outside]
+    corrupted = tune_xgb(x_bad, y_bad, masks, **kw)
+    vals = [t["val_auprc"] for t in clean["trials"]]
+    assert vals == [t["val_auprc"] for t in corrupted["trials"]]
+    assert clean["best_params"] == corrupted["best_params"]
+    # trial 0 is the fixed default recipe, so tuned >= default on validation
+    assert clean["trials"][0]["params"] == DEFAULT_TRIAL
+    assert clean["best_val_auprc"] >= clean["default_val_auprc"]
+    bad = dict(masks, val=masks["val"] | masks["test"])
+    with pytest.raises(ValueError):
+        tune_xgb(g.x, y01, bad, **kw)
+
+
+def test_tune_cli_end_to_end(raw, tmp_path):
+    pytest.importorskip("optuna")
+    out = tmp_path / "tune"
+    main([
+        "tune", "--raw-dir", str(raw), "--out-dir", str(out), "--seeds", "0", "1",
+        "--val-start", "7", "--train-end", "8", "--dark-market-step", "11",
+        "--n-trials", "3", "--xgb-rounds", "40", "--n-boot", "50", "--n-jobs", "1",
+        "--extra-n-jobs", "2",
+    ])
+    res = json.loads((out / "tuning.json").read_text())
+    m = res["models"]["xgb_all"]
+    assert set(m["arms"]) == {"default", "tuned", "default_2t", "tuned_2t"}
+    assert m["arms"]["tuned_2t"]["n_jobs"] == 2
+    assert m["search"]["n_trials"] == 3 and res["protocol"]["n_jobs"] == 1
+    assert set(m["comparisons"]) == {"default", "default_2t"}
+    c = m["comparisons"]["default"]
+    assert {"f1_at_0.5", "auprc", "cost_at_0.5", "cost_rolling_origin"} <= set(c)
+    assert c["auprc"]["default"]["diff_vs_reference"] == 0.0
+    assert "Does tuning help?" in (out / "tuning.md").read_text()

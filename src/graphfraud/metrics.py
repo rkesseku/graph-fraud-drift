@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from sklearn.metrics import average_precision_score, roc_auc_score
 
@@ -114,6 +116,48 @@ def block_bootstrap_f1(
         out[name] = {
             "f1_ci95": [float(np.quantile(reps, 0.025)), float(np.quantile(reps, 0.975))],
             "diff_vs_reference": float(diff.mean()),
+            "diff_ci95": [float(np.quantile(diff, 0.025)), float(np.quantile(diff, 0.975))],
+        }
+    return out
+
+
+def block_bootstrap_paired(
+    y: np.ndarray,
+    step: np.ndarray,
+    arms: dict[str, list[tuple[np.ndarray, float]]],
+    reference: str,
+    metric: Callable[[np.ndarray, np.ndarray, float], float],
+    n_boot: int = 2000,
+    seed: int = 0,
+) -> dict[str, dict]:
+    """Paired time-step bootstrap of any row-level metric (AUPRC, cost, ...).
+
+    ``arms[name]`` holds one ``(scores, threshold)`` pair per seed, all scored on the same rows
+    ``(y, step)``. Each replicate resamples time steps with replacement (the same draw for every
+    arm, so differences are paired), evaluates ``metric(y, scores, threshold)`` per seed on the
+    resampled rows and averages over seeds. Uses the same step draw as
+    :func:`block_bootstrap_f1` for equal ``seed`` and number of steps.
+    """
+    rng = np.random.default_rng(seed)
+    steps = np.unique(step)
+    idx = rng.integers(0, len(steps), size=(n_boot, len(steps)))
+    rows = [np.flatnonzero(step == s) for s in steps]
+    reps = {name: np.empty(n_boot) for name in arms}
+    for b in range(n_boot):
+        sel = np.concatenate([rows[i] for i in idx[b]])
+        ys = y[sel]
+        for name, pairs in arms.items():
+            reps[name][b] = np.mean([metric(ys, p[sel], t) for p, t in pairs])
+    point = {
+        name: float(np.mean([metric(y, p, t) for p, t in pairs])) for name, pairs in arms.items()
+    }
+    out = {}
+    for name in arms:
+        diff = reps[name] - reps[reference]
+        out[name] = {
+            "estimate": point[name],
+            "ci95": [float(np.quantile(reps[name], 0.025)), float(np.quantile(reps[name], 0.975))],
+            "diff_vs_reference": point[name] - point[reference],
             "diff_ci95": [float(np.quantile(diff, 0.025)), float(np.quantile(diff, 0.975))],
         }
     return out

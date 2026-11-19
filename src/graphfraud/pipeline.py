@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -132,6 +133,95 @@ def _summarise_variants(runs: list[dict]) -> dict:
     return out
 
 
+def evaluate_seeds(
+    name: str,
+    train_fn: Callable[[int], TwoStageResult],
+    y01: np.ndarray,
+    step: np.ndarray,
+    masks: dict[str, np.ndarray],
+    origins: list[int],
+    cfg: RunConfig,
+) -> tuple[list[dict], list[np.ndarray], np.ndarray]:
+    """Run ``train_fn(seed)`` for every seed and score the test steps once per seed.
+
+    Returns the per-seed run records, the per-seed per-step (TP, FP, FN) counts at 0.5 (for the
+    block bootstrap) and the first seed's test scores (for the PR curves).
+    """
+    test, val = masks["test"], masks["val"]
+    yt, st = y01[test], step[test]
+    runs: list[dict] = []
+    counts: list[np.ndarray] = []
+    curve = np.empty(0)
+    for seed in cfg.seeds:
+        t0 = time.perf_counter()
+        res = train_fn(seed)
+        p1, pf, size = res.p_stage1, res.p_final, res.size
+        secs = time.perf_counter() - t0
+        thr = select_thresholds(y01, step, masks, res, origins, cfg.c_fn, cfg.c_fp)
+        pt = pf[test]
+        variants = {
+            # original procedure: stage-1 threshold applied to the refit model
+            "mismatched": _cost_block(yt, pt, thr["mismatched"], cfg.c_fn, cfg.c_fp),
+            # stage-1 model kept as the deployed model, with its own threshold
+            "stage1_own": {
+                "at_0.5": _cost_block(yt, p1[test], 0.5, cfg.c_fn, cfg.c_fp),
+                "at_threshold": _cost_block(yt, p1[test], thr["mismatched"], cfg.c_fn, cfg.c_fp),
+                "auprc": illicit_metrics(yt, p1[test])["auprc"],
+            },
+        }
+        if "rolling_origin" in thr:
+            variants["rolling_origin"] = _cost_block(
+                yt, pt, thr["rolling_origin"], cfg.c_fn, cfg.c_fp
+            )
+        runs.append(
+            {
+                "seed": seed,
+                "size": size,
+                "seconds": secs,
+                "val_auprc_stage1": illicit_metrics(y01[val], p1[val])["auprc"],
+                "test_at_0.5": illicit_metrics(yt, pt, 0.5),
+                "test_cost_at_0.5": expected_cost(yt, pt, 0.5, cfg.c_fn, cfg.c_fp),
+                "thresholds": thr,
+                "threshold_variants": variants,
+                "f1_pre_shutdown": illicit_metrics(
+                    y01[masks["test_pre_shutdown"]], pf[masks["test_pre_shutdown"]]
+                )["f1"],
+                "f1_post_shutdown": illicit_metrics(
+                    y01[masks["test_post_shutdown"]], pf[masks["test_post_shutdown"]]
+                )["f1"],
+                "per_step_f1": per_step_f1(yt, pt, st, 0.5),
+            }
+        )
+        counts.append(counts_by_step(yt, pt >= 0.5, st)[1])
+        if seed == cfg.seeds[0]:
+            curve = pt
+        costs = " ".join(f"{k}={v['cost']:.4f}" for k, v in variants.items() if "cost" in v)
+        print(f"[{name}] seed={seed} f1@0.5={runs[-1]['test_at_0.5']['f1']:.3f} "
+              f"cost@0.5={runs[-1]['test_cost_at_0.5']:.4f} {costs} ({secs:.1f}s)",
+              flush=True)
+    return runs, counts, curve
+
+
+def summarise_runs(runs: list[dict]) -> dict:
+    """Mean/sd over seeds of the headline test metrics."""
+    steps = sorted(runs[0]["per_step_f1"])
+    return {
+        "f1": _mean_sd([r["test_at_0.5"]["f1"] for r in runs]),
+        "precision": _mean_sd([r["test_at_0.5"]["precision"] for r in runs]),
+        "recall": _mean_sd([r["test_at_0.5"]["recall"] for r in runs]),
+        "auprc": _mean_sd([r["test_at_0.5"]["auprc"] for r in runs]),
+        "auroc": _mean_sd([r["test_at_0.5"]["auroc"] for r in runs]),
+        "f1_pre_shutdown": _mean_sd([r["f1_pre_shutdown"] for r in runs]),
+        "f1_post_shutdown": _mean_sd([r["f1_post_shutdown"] for r in runs]),
+        "cost_at_0.5": _mean_sd([r["test_cost_at_0.5"] for r in runs]),
+        "threshold_variants": _summarise_variants(runs),
+        "seconds": _mean_sd([r["seconds"] for r in runs]),
+        "per_step_f1_mean": {
+            s: float(np.mean([r["per_step_f1"][s] for r in runs])) for s in steps
+        },
+    }
+
+
 def run_all(raw_dir: str | Path, out_dir: str | Path, cfg: RunConfig | None = None) -> dict:
     cfg = cfg or RunConfig()
     out = Path(out_dir)
@@ -154,91 +244,31 @@ def run_all(raw_dir: str | Path, out_dir: str | Path, cfg: RunConfig | None = No
         import torch
 
         torch.set_num_threads(cfg.n_jobs)
-    yt, st = y01[test], g.step[test]
+    yt = y01[test]
     per_model: dict[str, dict] = {}
     step_counts: dict[str, list[np.ndarray]] = {}
     curves: dict[str, np.ndarray] = {}
 
     for name in cfg.models:
         label, feat_key = MODELS[name]
-        runs = []
-        for seed in cfg.seeds:
-            t0 = time.perf_counter()
+
+        def train_fn(seed: int, name: str = name, feat_key: str = feat_key) -> TwoStageResult:
             if name.startswith("xgb"):
-                res = train_xgb(
+                return train_xgb(
                     feats[feat_key], y01, masks, seed=seed, max_rounds=cfg.xgb_rounds,
                     refit_masks=refit_masks, n_jobs=cfg.n_jobs,
                 )
-            else:
-                res = train_gnn(
-                    name, gnn_x, g.edge_index, g.y, masks, seed, cfg.gnn, refit_masks=refit_masks
-                )
-            p1, pf, size = res.p_stage1, res.p_final, res.size
-            secs = time.perf_counter() - t0
-            thr = select_thresholds(y01, g.step, masks, res, origins, cfg.c_fn, cfg.c_fp)
-            pt = pf[test]
-            variants = {
-                # original procedure: stage-1 threshold applied to the refit model
-                "mismatched": _cost_block(yt, pt, thr["mismatched"], cfg.c_fn, cfg.c_fp),
-                # stage-1 model kept as the deployed model, with its own threshold
-                "stage1_own": {
-                    "at_0.5": _cost_block(yt, p1[test], 0.5, cfg.c_fn, cfg.c_fp),
-                    "at_threshold": _cost_block(
-                        yt, p1[test], thr["mismatched"], cfg.c_fn, cfg.c_fp
-                    ),
-                    "auprc": illicit_metrics(yt, p1[test])["auprc"],
-                },
-            }
-            if "rolling_origin" in thr:
-                variants["rolling_origin"] = _cost_block(
-                    yt, pt, thr["rolling_origin"], cfg.c_fn, cfg.c_fp
-                )
-            runs.append(
-                {
-                    "seed": seed,
-                    "size": size,
-                    "seconds": secs,
-                    "val_auprc_stage1": illicit_metrics(y01[val], p1[val])["auprc"],
-                    "test_at_0.5": illicit_metrics(yt, pt, 0.5),
-                    "test_cost_at_0.5": expected_cost(yt, pt, 0.5, cfg.c_fn, cfg.c_fp),
-                    "thresholds": thr,
-                    "threshold_variants": variants,
-                    "f1_pre_shutdown": illicit_metrics(
-                        y01[masks["test_pre_shutdown"]], pf[masks["test_pre_shutdown"]]
-                    )["f1"],
-                    "f1_post_shutdown": illicit_metrics(
-                        y01[masks["test_post_shutdown"]], pf[masks["test_post_shutdown"]]
-                    )["f1"],
-                    "per_step_f1": per_step_f1(yt, pt, st, 0.5),
-                }
+            return train_gnn(
+                name, gnn_x, g.edge_index, g.y, masks, seed, cfg.gnn, refit_masks=refit_masks
             )
-            step_counts.setdefault(name, []).append(counts_by_step(yt, pt >= 0.5, st)[1])
-            if seed == cfg.seeds[0]:
-                curves[name] = pt
-            costs = " ".join(f"{k}={v['cost']:.4f}" for k, v in variants.items() if "cost" in v)
-            print(f"[{name}] seed={seed} f1@0.5={runs[-1]['test_at_0.5']['f1']:.3f} "
-                  f"cost@0.5={runs[-1]['test_cost_at_0.5']:.4f} {costs} ({secs:.1f}s)",
-                  flush=True)
 
-        steps = sorted(runs[0]["per_step_f1"])
+        runs, step_counts[name], curves[name] = evaluate_seeds(
+            name, train_fn, y01, g.step, masks, origins, cfg
+        )
         per_model[name] = {
             "label": label,
             "features": feat_key,
-            "summary": {
-                "f1": _mean_sd([r["test_at_0.5"]["f1"] for r in runs]),
-                "precision": _mean_sd([r["test_at_0.5"]["precision"] for r in runs]),
-                "recall": _mean_sd([r["test_at_0.5"]["recall"] for r in runs]),
-                "auprc": _mean_sd([r["test_at_0.5"]["auprc"] for r in runs]),
-                "auroc": _mean_sd([r["test_at_0.5"]["auroc"] for r in runs]),
-                "f1_pre_shutdown": _mean_sd([r["f1_pre_shutdown"] for r in runs]),
-                "f1_post_shutdown": _mean_sd([r["f1_post_shutdown"] for r in runs]),
-                "cost_at_0.5": _mean_sd([r["test_cost_at_0.5"] for r in runs]),
-                "threshold_variants": _summarise_variants(runs),
-                "seconds": _mean_sd([r["seconds"] for r in runs]),
-                "per_step_f1_mean": {
-                    s: float(np.mean([r["per_step_f1"][s] for r in runs])) for s in steps
-                },
-            },
+            "summary": summarise_runs(runs),
             "runs": runs,
         }
 
