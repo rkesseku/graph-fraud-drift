@@ -93,32 +93,32 @@ The test suite builds small synthetic graphs in the same CSV format, so CI runs 
 All figures below come from one run of `graphfraud run-all` on the full data set (115 minutes on a shared laptop CPU, mostly the GAT). They are stored in `docs/results/metrics.json`. Values are means over three seeds, ± one standard deviation.
 
 | Model | F1 at 0.5 | Precision | Recall | AUPRC | F1, steps 35–42 | F1, steps 43–49 |
-|---|---|---|---|---|---|---|
+|---------------------------------|--------------|----------|-------|------|----------------|----------------|
 | XGBoost, local (93) | 0.781 ± 0.009 | 0.892 | 0.696 | 0.783 | 0.877 | 0.021 |
-| *XGBoost, local + aggregated (165)* | *0.816 ± 0.005* | 0.930 | 0.727 | *0.801* | 0.910 | 0.029 |
+| XGBoost, local + aggregated (165) | **0.816 ± 0.005** | **0.930** | **0.727** | **0.801** | **0.910** | **0.029** |
 | XGBoost, 165 + graph features | 0.796 ± 0.001 | 0.901 | 0.713 | 0.792 | 0.895 | 0.018 |
 | GraphSAGE (165) | 0.687 ± 0.016 | 0.856 | 0.575 | 0.671 | 0.769 | 0.017 |
-| GAT (165) | 0.533 ± 0.015 | 0.509 | 0.563 | 0.539 | 0.602 | 0.029 |
+| GAT (165) | 0.533 ± 0.015 | 0.509 | 0.563 | 0.539 | 0.602 | **0.029** |
 
-: Illicit-class results on test steps 35–49 (16,670 labelled transactions, 1,083 illicit). {#tbl-results tbl-colwidths="[31,14,11,9,9,13,13]"}
+: Illicit-class results on test steps 35–49 (16,670 labelled transactions, 1,083 illicit). Bold marks the best value in each column. {#tbl-results tbl-colwidths="[32,15,10,8,9,13,13]"}
 
-![Illicit F1 by model with 95% time-step bootstrap intervals.](figures/f1_comparison.png){#fig-f1 width=58%}
+![Illicit F1 by model with 95% time-step bootstrap intervals.](figures/f1_comparison.png){#fig-f1 width=50%}
 
 Against the best model, the F1 differences (95% intervals) are: local features only −0.035 [−0.045, −0.027]; adding engineered graph features −0.021 [−0.038, −0.009]; GraphSAGE −0.130 [−0.187, −0.083]; GAT −0.285 [−0.389, −0.189]. All four intervals exclude zero.
 
-![Mean per-step F1 across the test period; grey bars count illicit transactions per step. Every model collapses at the dark-market shutdown.](figures/per_step_f1.png){#fig-drift width=84%}
+![Mean per-step F1 across the test period; grey bars count illicit transactions per step. Every model collapses at the dark-market shutdown.](figures/per_step_f1.png){#fig-drift width=76%}
 
 {{< pagebreak >}}
 
 ## Cost-sensitive alerting
 
 | Model | Cost at 0.5 | Cost at val-chosen threshold | Recall | Precision |
-|---|---|---|---|---|
-| XGBoost (165) | 0.181 | 0.202 | 0.758 | 0.526 |
-| GraphSAGE | 0.283 | 0.242 | 0.649 | 0.756 |
+|-------------------------|---------------------|-------------------------|------------|------------------|
+| XGBoost (165) | **0.181** | **0.202** | **0.758** | 0.526 |
+| GraphSAGE | 0.283 | 0.242 | 0.649 | **0.756** |
 | GAT | 0.320 | 0.311 | 0.588 | 0.470 |
 
-: Cost per test transaction (missed illicit = 10, false alert = 1) at 0.5 and at the threshold chosen on validation; recall and precision are at the chosen threshold. {#tbl-cost tbl-colwidths="[28,18,24,15,15]"}
+: Cost per test transaction (missed illicit = 10, false alert = 1) at 0.5 and at the threshold chosen on validation; recall and precision are at the chosen threshold. Bold marks the best value in each column (lowest cost). {#tbl-cost}
 
 # What this demonstrates
 
