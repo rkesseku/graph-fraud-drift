@@ -1,5 +1,5 @@
 ---
-title: "graph-fraud-drift"
+title: "Graph Fraud Detection under Concept Drift"
 subtitle: "Do graph neural networks beat gradient boosting for illicit-transaction detection when the evaluation respects time? A controlled test on the Elliptic Bitcoin graph"
 author:
   - name: "Reagan Kesseku · Project brief · github.com/rkesseku/graph-fraud-drift"
