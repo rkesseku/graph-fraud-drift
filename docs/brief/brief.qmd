@@ -1,8 +1,4 @@
 ---
-title: "Graph Fraud Detection under Concept Drift"
-subtitle: "Do graph neural networks beat gradient boosting for illicit-transaction detection when the evaluation respects time? A controlled test on the Elliptic Bitcoin graph"
-author:
-  - name: "Reagan Kesseku · Project brief · github.com/rkesseku/graph-fraud-drift"
 linkcolor: "#1f4e9e"
 format:
   typst:
@@ -27,6 +23,17 @@ format:
 ]
 #show heading.where(level: 2): set text(fill: rgb("#2d2d2d"), size: 11.5pt)
 #let glance(body) = block(fill: rgb("#eef3fb"), stroke: (left: 3pt + rgb("#1f4e9e")), inset: 10pt, radius: 2pt, width: 100%, body)
+// Header: red title, subtitle, author, repository link
+#align(center)[
+  #text(size: 17pt, weight: "bold", fill: rgb("#b91c1c"))[Graph Fraud Detection under Concept Drift]
+  #v(0.5em)
+  #text(size: 12pt, weight: "bold")[Do graph neural networks beat gradient boosting for illicit-transaction detection when the evaluation respects time? A controlled test on the Elliptic Bitcoin graph]
+  #v(0.9em)
+  #text(size: 11pt)[Reagan Kesseku, Ph.D.]
+  #linebreak()
+  #text(size: 10pt)[#link("https://github.com/rkesseku/graph-fraud-drift")[github.com/rkesseku/graph-fraud-drift]]
+]
+#v(0.5em)
 ```
 
 ```{=typst}
