@@ -3,7 +3,9 @@ import json
 import numpy as np
 import pytest
 import torch
+from xgboost import XGBClassifier
 
+from graphfraud.boosting import DEFAULT_PARAMS, TwoStageResult, train_xgb
 from graphfraud.cli import main
 from graphfraud.data import load_elliptic
 from graphfraud.gnn import GATLayer, GraphSAGE, build_graph_inputs, undirected_edges
@@ -16,6 +18,7 @@ from graphfraud.metrics import (
     illicit_metrics,
     prf,
 )
+from graphfraud.pipeline import rolling_origin_windows, select_thresholds
 from graphfraud.split import TemporalSplit
 from graphfraud.testing import write_synthetic_elliptic
 
@@ -100,6 +103,55 @@ def test_metrics_and_cost_threshold():
     assert expected_cost(y, p, thr, 10, 1) < expected_cost(y, p, 0.5, 10, 1)
 
 
+def test_rolling_threshold_lives_on_the_deployed_models_scale():
+    # Deployed (refit) scores are a monotone transform of the stage-1 scale. The rolling-origin
+    # threshold must then give exactly the decisions that the stage-1 threshold gives on its own
+    # model, while the old mismatched threshold (stage-1 value applied to refit scores) does not.
+    rng = np.random.default_rng(0)
+    step = np.repeat(np.arange(1, 11), 200)
+    y = (rng.random(step.size) < 0.15).astype(np.int64)
+    q = np.clip(0.25 + 0.4 * y + rng.normal(0, 0.15, step.size), 1e-3, 1 - 1e-3)
+    final = q**4  # same ranking, different scale
+    split = TemporalSplit(val_start=6, train_end=8, dark_market_step=10)
+    masks = split.masks(step, y)
+    windows = rolling_origin_windows(step, y, split)
+    assert [o for o, _ in windows] == [6, 7, 8]
+    assert all(step[m].max() == o - 1 for o, m in windows)
+    res = TwoStageResult(q, final, 1, [final] * len(windows))
+    thr = select_thresholds(y, step, masks, res, [o for o, _ in windows], 10.0, 1.0)
+    assert thr["mismatched"] == cost_optimal_threshold(y[masks["val"]], q[masks["val"]], 10, 1)
+    test = masks["test"]
+    own = q[test] >= thr["mismatched"]
+    assert ((final[test] >= thr["rolling_origin"]) == own).all()
+    assert ((final[test] >= thr["mismatched"]) != own).any()
+
+
+def test_threshold_chosen_from_same_recipe_as_evaluated_model(raw):
+    g = load_elliptic(raw, n_local=6)
+    y01 = np.clip(g.y, 0, 1)
+    split = TemporalSplit(val_start=7, train_end=8, dark_market_step=11)
+    masks = split.masks(g.step, g.y)
+    windows = rolling_origin_windows(g.step, g.y, split)
+    res = train_xgb(g.x, y01, masks, seed=0, max_rounds=60, refit_masks=[m for _, m in windows],
+                    n_jobs=1)
+    assert len(res.p_refits) == len(windows)
+
+    def recipe(mask):
+        m = XGBClassifier(n_estimators=res.size, random_state=0, n_jobs=1, **DEFAULT_PARAMS)
+        return m.fit(g.x[mask], y01[mask], verbose=False).predict_proba(g.x)[:, 1]
+
+    # the evaluated model and every threshold-selection model come from the same recipe
+    np.testing.assert_allclose(res.p_final, recipe(masks["train"]), rtol=1e-6)
+    oot = np.empty(len(y01))
+    for (o, m), p in zip(windows, res.p_refits, strict=True):
+        np.testing.assert_allclose(p, recipe(m), rtol=1e-6)
+        oot[g.step == o] = p[g.step == o]
+    val = masks["val"]
+    thr = select_thresholds(y01, g.step, masks, res, [o for o, _ in windows], 10.0, 1.0)
+    assert thr["rolling_origin"] == cost_optimal_threshold(y01[val], oot[val], 10, 1)
+    assert thr["mismatched"] == cost_optimal_threshold(y01[val], res.p_stage1[val], 10, 1)
+
+
 def test_block_bootstrap_identical_models_zero_diff():
     y = np.array([1, 0, 1, 0, 1, 0, 0, 1])
     step = np.array([1, 1, 2, 2, 3, 3, 4, 4])
@@ -123,6 +175,10 @@ def test_run_all_end_to_end(raw, tmp_path):
     for m in res["models"].values():
         assert 0.0 <= m["summary"]["f1"]["mean"] <= 1.0
         assert "bootstrap" in m
+        tv = m["summary"]["threshold_variants"]
+        assert {"mismatched", "rolling_origin", "stage1_own"} <= set(tv)
+        assert all(0.0 <= tv[k]["cost"]["mean"] for k in ("mismatched", "rolling_origin"))
+    assert res["protocol"]["threshold_origins"] == [7, 8]
     # the synthetic signal is easy before the drift step
     assert res["models"]["xgb_all"]["summary"]["f1_pre_shutdown"]["mean"] > 0.6
     for fig in ("per_step_f1.png", "pr_curves.png", "f1_comparison.png"):

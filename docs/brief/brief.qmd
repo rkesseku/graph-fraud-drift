@@ -48,7 +48,7 @@ format:
 *At a glance* \
 *Problem:* Anti-money-laundering models are usually scored on random splits with one F1 number, which hides two production realities: criminals change behaviour over time, and alert thresholds are cost decisions. A popular claim is that graph neural networks are the natural model for transaction graphs. \
 *What I built:* A reproducible benchmark on the public Elliptic graph (203,769 transactions, 234,355 payment edges, 49 time steps). It trains five models (three XGBoost feature sets, GraphSAGE and GAT written in plain PyTorch) on a strict past-to-future split with three seeds each. Evaluation covers cost-sensitive thresholds, a bootstrap over time steps and per-step drift analysis. \
-*Headline result:* XGBoost on the 165 provided features reached illicit F1 *0.816 ± 0.005* (AUPRC 0.801) on test steps 35–49. GraphSAGE scored 0.130 lower (95% interval [−0.187, −0.083]) and GAT 0.285 lower. After the dark-market shutdown at step 43, *every* model's F1 fell to 0.02–0.03. \
+*Headline result:* XGBoost on the 165 provided features reached illicit F1 *0.817 ± 0.002* (AUPRC 0.800) on test steps 35–49. GraphSAGE scored 0.130 lower (95% interval [−0.187, −0.083]) and GAT 0.285 lower. After the dark-market shutdown at step 43, *every* model's F1 fell to 0.02–0.03. \
 *Stack:* Python, PyTorch, XGBoost, SciPy sparse, scikit-learn, pandas, matplotlib, pytest, GitHub Actions. \
 *Repo:* #link("https://github.com/rkesseku/graph-fraud-drift")[github.com/rkesseku/graph-fraud-drift]
 ]
@@ -82,7 +82,7 @@ The Elliptic data set [@weber2019] is a public graph of Bitcoin transactions. It
 2. *Graph features* (`graph_features.py`). Log in-, out- and total degree, PageRank, mean neighbour degree, and one- and two-hop neighbourhood means of the local features. None of them reads labels, so computing them over the whole graph cannot leak the target.
 3. *XGBoost* [@chen2016xgboost] (`boosting.py`). Three feature sets: local only (93), local + aggregated (165), and 165 + the engineered graph features. Each uses early stopping on validation AUPRC, the area under the precision-recall curve, which suits a rare positive class.
 4. *GNNs* (`gnn.py`). Two-layer GraphSAGE [@hamilton2017] (mean aggregator) and GAT [@velickovic2018] (four attention heads), written in plain PyTorch with sparse operations, so the package needs no graph library. They are trained full-batch over all 203k nodes with a class-weighted loss; unlabelled nodes pass messages but never enter the loss.
-5. *Evaluation* (`metrics.py`). Illicit-class precision, recall, F1 at 0.5 and AUPRC. Cost-optimal thresholds are chosen on validation, assuming a missed illicit transaction costs 10× a false alert. 95% intervals come from 2,000 bootstrap resamples of the 15 test time steps, the natural unit of dependence, pooled over three seeds. Per-step F1 tracks drift.
+5. *Evaluation* (`metrics.py`). Illicit-class precision, recall, F1 at 0.5 and AUPRC. Cost-optimal thresholds are chosen on validation steps only, assuming a missed illicit transaction costs 10× a false alert. To keep the threshold on the deployed model's score scale, each validation step is scored by a model refit with the final recipe (same tree count and seed) on all earlier steps (rolling origin), and the threshold is chosen on those pooled one-step-ahead scores. 95% intervals come from 2,000 bootstrap resamples of the 15 test time steps, the natural unit of dependence, pooled over three seeds. Per-step F1 tracks drift.
 
 The test suite builds small synthetic graphs in the same CSV format, so CI runs on Python 3.10–3.12 with no download.
 
@@ -90,21 +90,21 @@ The test suite builds small synthetic graphs in the same CSV format, so CI runs 
 
 # Results
 
-All figures below come from one run of `graphfraud run-all` on the full data set (115 minutes on a shared laptop CPU, mostly the GAT). They are stored in `docs/results/metrics.json`. Values are means over three seeds, ± one standard deviation.
+XGBoost figures come from a 2-thread run of `graphfraud run-all` on the full data set with the rolling-origin threshold (about 70 minutes). GraphSAGE and GAT figures (marked †) come from the previous full run (115 minutes, mostly the GAT) and were not re-run. All are stored in `docs/results/metrics.json`. Values are means over three seeds, ± one standard deviation.
 
 | Model | F1 at 0.5 | Precision | Recall | AUPRC | F1, steps 35–42 | F1, steps 43–49 |
 |---------------------------------|--------------|----------|-------|------|----------------|----------------|
-| XGBoost, local (93) | 0.781 ± 0.009 | 0.892 | 0.696 | 0.783 | 0.877 | 0.021 |
-| XGBoost, local + aggregated (165) | **0.816 ± 0.005** | **0.930** | **0.727** | **0.801** | **0.910** | **0.029** |
-| XGBoost, 165 + graph features | 0.796 ± 0.001 | 0.901 | 0.713 | 0.792 | 0.895 | 0.018 |
-| GraphSAGE (165) | 0.687 ± 0.016 | 0.856 | 0.575 | 0.671 | 0.769 | 0.017 |
-| GAT (165) | 0.533 ± 0.015 | 0.509 | 0.563 | 0.539 | 0.602 | **0.029** |
+| XGBoost, local (93) | 0.775 ± 0.004 | 0.860 | 0.706 | 0.787 | 0.876 | **0.029** |
+| XGBoost, local + aggregated (165) | **0.817 ± 0.002** | 0.931 | **0.728** | 0.800 | **0.911** | **0.029** |
+| XGBoost, 165 + graph features | 0.810 ± 0.017 | **0.932** | 0.716 | **0.803** | 0.904 | 0.023 |
+| GraphSAGE (165)† | 0.687 ± 0.016 | 0.856 | 0.575 | 0.671 | 0.769 | 0.017 |
+| GAT (165)† | 0.533 ± 0.015 | 0.509 | 0.563 | 0.539 | 0.602 | **0.029** |
 
-: Illicit-class results on test steps 35–49 (16,670 labelled transactions, 1,083 illicit). Bold marks the best value in each column. {#tbl-results tbl-colwidths="[32,15,10,8,9,13,13]"}
+: Illicit-class results on test steps 35–49 (16,670 labelled transactions, 1,083 illicit). Bold marks the best value in each column. † Previous run, not re-run. {#tbl-results tbl-colwidths="[32,15,10,8,9,13,13]"}
 
 ![Illicit F1 by model with 95% time-step bootstrap intervals.](figures/f1_comparison.png){#fig-f1 width=50%}
 
-Against the best model, the F1 differences (95% intervals) are: local features only −0.035 [−0.045, −0.027]; adding engineered graph features −0.021 [−0.038, −0.009]; GraphSAGE −0.130 [−0.187, −0.083]; GAT −0.285 [−0.389, −0.189]. All four intervals exclude zero.
+Against the best model, the F1 differences (95% intervals) are: local features only −0.041 [−0.055, −0.030]; adding engineered graph features −0.007 [−0.017, 0.001]; GraphSAGE −0.130 [−0.187, −0.083] and GAT −0.285 [−0.389, −0.189] (both against the previous run's XGBoost, F1 0.816). Only the graph-feature interval includes zero.
 
 ![Mean per-step F1 across the test period; grey bars count illicit transactions per step. Every model collapses at the dark-market shutdown.](figures/per_step_f1.png){#fig-drift width=76%}
 
@@ -112,23 +112,24 @@ Against the best model, the F1 differences (95% intervals) are: local features o
 
 ## Cost-sensitive alerting
 
-| Model | Cost at 0.5 | Cost at val-chosen threshold | Recall | Precision |
-|-------------------------|---------------------|-------------------------|------------|------------------|
-| XGBoost (165) | **0.181** | **0.202** | **0.758** | 0.526 |
-| GraphSAGE | 0.283 | 0.242 | 0.649 | **0.756** |
-| GAT | 0.320 | 0.311 | 0.588 | 0.470 |
+| Model | Cost at 0.5 | Cost, original threshold | Cost, rolling-origin threshold | Recall | Precision |
+|-----------------------------------|--------------|--------------|-----------------|--------|------------|
+| XGBoost (165) | **0.1805** | 0.1966 | 0.1878 | **0.748** | 0.675 |
+| XGBoost, 165 + graph features | 0.1878 | **0.1962** | **0.1864** | 0.739 | 0.751 |
+| GraphSAGE† | 0.2826 | 0.2422 | not run | 0.649 | **0.756** |
+| GAT† | 0.3199 | 0.3108 | not run | 0.588 | 0.470 |
 
-: Cost per test transaction (missed illicit = 10, false alert = 1) at 0.5 and at the threshold chosen on validation; recall and precision are at the chosen threshold. Bold marks the best value in each column (lowest cost). {#tbl-cost}
+: Cost per test transaction (missed illicit = 10, false alert = 1), means over three seeds. Both thresholds are chosen on validation steps only: *original* on the 1–29 model, then applied to the refit model; *rolling origin* on one-step-ahead scores of the deployed recipe. Recall and precision are at the rolling-origin threshold for XGBoost and at the original threshold for the GNNs. Bold marks the best value in each column (lowest for costs, highest for recall and precision). † Previous run, not re-run. {#tbl-cost}
 
 # What this demonstrates
 
 *Gradient boosting beat the GNNs, by a wide and statistically clear margin.* With identical inputs and protocol, XGBoost outscored GraphSAGE by 0.13 F1 and GAT by 0.29. The provided features already summarise each transaction's one-hop neighbourhood, and a tree model uses that summary more efficiently than message passing learns it. GAT was also the least stable from step to step.
 
-*Graph information helps when it arrives as features.* The 72 aggregated neighbourhood features added 0.035 F1 to XGBoost. Adding 191 more engineered graph features (degree, PageRank, two-hop means) *reduced* F1 by 0.021. Those models early-stopped at 45–127 trees against 450–698 for the 165-feature model. The extra columns apparently made the small validation block easier to fit by chance; they did not add signal. More features were not better.
+*Graph information helps when it arrives as features.* The 72 aggregated neighbourhood features added 0.041 F1 to XGBoost. Adding 191 more engineered graph features (degree, PageRank, two-hop means) changed F1 by −0.007, an interval that includes zero, and made results less stable: one seed early-stopped at 53 trees (F1 0.791), the others at 365–376 (0.819–0.820). An earlier run with a different thread count, where all seeds stopped at 45–127 trees, showed a significant loss of 0.021, so the honest reading is "no gain", not "harm". More features were not better.
 
 *The biggest risk is drift, not model choice.* Before the shutdown at step 43, the best model's F1 was 0.91. Afterwards it was 0.03, and no model did better than 0.03. The models had learned the illicit patterns of a market that disappeared. A random split would report about 0.9 and hide this entirely. In production, the defence is monitoring (alert volumes, score distributions, feedback from analyst reviews) plus a retraining trigger.
 
-*Thresholds are decisions, and they go stale too.* A threshold minimising expected cost on the validation steps cut GraphSAGE's test cost from 0.283 to 0.242 per transaction. For XGBoost it raised recall from 0.727 to 0.758 but *increased* cost slightly (0.181 to 0.202), because the post-shutdown period no longer looks like the validation period. The practical lesson is to recalibrate thresholds on recent labelled data on a schedule, rather than set them once.
+*Thresholds are decisions, and they go stale too.* The original procedure tuned the threshold on the model fitted to steps 1–29 but applied it to the model refit on 1–34, whose scores sit on a different scale. For XGBoost (165) that raised test cost from 0.1805 (at 0.5) to 0.1966. Tuning on one-step-ahead scores of the deployed recipe cut the excess by more than half (0.1878) and lifted precision from 0.569 to 0.675 at similar recall; it beat the original threshold in 8 of 9 XGBoost model-seed runs. Yet it still beat 0.5 in only 2 of 9, never for XGBoost (165): part of the earlier loss was the mismatch, the rest is drift, as the post-shutdown period no longer looks like the validation period. For GraphSAGE the original threshold did cut cost (0.283 to 0.242). The lessons: tune thresholds on the model you deploy, and recalibrate them on recent labelled data on a schedule.
 
 *Engineering choices that carry over to production work.* The split is time-respecting and the test period is touched exactly once. Model size is selected on validation and the model refit before testing. The bootstrap uses time steps as the unit, because transactions within a step are not independent. Graph features are label-free, so there is no target leakage. GNNs written in about 200 lines of plain PyTorch keep the dependency surface small and the CI fast.
 
@@ -139,7 +140,7 @@ Against the best model, the F1 differences (95% intervals) are: local features o
 - *One dataset, anonymised features.* Elliptic's labels come from heuristics described in the original paper and cover only 23% of transactions. Results may not transfer to card, bank-transfer or other chain data.
 - *No hyperparameter search.* Each model uses one reasonable configuration. A tuned GNN, or a temporal GNN that carries state across steps, might narrow the gap; the repo makes that comparison easy to run.
 - *Assumed costs.* The 10:1 cost ratio illustrates the method; a real deployment would use the institution's own loss and review-cost estimates.
-- *Threshold transfer.* The threshold is chosen on the model fitted to steps 1–29 and applied to the model refit on 1–34, which keeps the test period untouched but adds some mismatch.
+- *Threshold selection.* The rolling-origin threshold reuses the tree count selected on the same validation steps, so it is mildly optimistic; the GNNs were not re-run with it. XGBoost results also shift with the thread count, which changes early-stopped tree counts.
 - *Bootstrap assumptions.* Resampling 15 test steps treats them as exchangeable, which understates uncertainty when drift is systematic, as it is here.
 - *Next steps.* Score-distribution drift alarms, periodic refit and recalibration on a rolling window, and active learning so analyst decisions on new patterns feed back into training.
 

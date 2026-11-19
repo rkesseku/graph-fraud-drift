@@ -1,22 +1,12 @@
-[xgb_local] seed=0 f1@0.5=0.787 (33.5s)
-[xgb_local] seed=1 f1@0.5=0.771 (84.2s)
-[xgb_local] seed=2 f1@0.5=0.785 (50.7s)
-[xgb_all] seed=0 f1@0.5=0.812 (198.8s)
-[xgb_all] seed=1 f1@0.5=0.821 (281.6s)
-[xgb_all] seed=2 f1@0.5=0.815 (429.5s)
-[xgb_all_graph] seed=0 f1@0.5=0.796 (109.2s)
-[xgb_all_graph] seed=1 f1@0.5=0.794 (68.0s)
-[xgb_all_graph] seed=2 f1@0.5=0.797 (60.8s)
-C:\Users\rkesseku\GitHub\graph-fraud-drift\src\graphfraud\gnn.py:37: UserWarning: Sparse CSR tensor support is in beta state. If you miss a functionality in the sparse tensor support, please submit a feature request to https://github.com/pytorch/pytorch/issues. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\aten\src\ATen\SparseCsrTensorImpl.cpp:51.)
-  return coo.to_sparse_csr()  # CSR sparse-dense matmul is markedly faster on CPU
-[sage] seed=0 f1@0.5=0.690 (773.6s)
-[sage] seed=1 f1@0.5=0.670 (615.5s)
-[sage] seed=2 f1@0.5=0.702 (727.2s)
-[gat] seed=0 f1@0.5=0.527 (1749.6s)
-[gat] seed=1 f1@0.5=0.550 (1093.3s)
-[gat] seed=2 f1@0.5=0.522 (620.3s)
-xgb_local      F1 0.781 +/- 0.009  AUPRC 0.783  post-shutdown F1 0.021
-xgb_all        F1 0.816 +/- 0.005  AUPRC 0.801  post-shutdown F1 0.029
-xgb_all_graph  F1 0.796 +/- 0.001  AUPRC 0.792  post-shutdown F1 0.018
-sage           F1 0.687 +/- 0.016  AUPRC 0.671  post-shutdown F1 0.017
-gat            F1 0.533 +/- 0.015  AUPRC 0.539  post-shutdown F1 0.029
+[xgb_local] seed=0 f1@0.5=0.771 cost@0.5=0.2014 mismatched=0.2139 rolling_origin=0.2062 (397.1s)
+[xgb_local] seed=1 f1@0.5=0.776 cost@0.5=0.1997 mismatched=0.2076 rolling_origin=0.2156 (205.4s)
+[xgb_local] seed=2 f1@0.5=0.779 cost@0.5=0.1947 mismatched=0.2229 rolling_origin=0.2086 (136.8s)
+[xgb_all] seed=0 f1@0.5=0.819 cost@0.5=0.1791 mismatched=0.2007 rolling_origin=0.1958 (546.6s)
+[xgb_all] seed=1 f1@0.5=0.817 cost@0.5=0.1800 mismatched=0.1922 rolling_origin=0.1845 (826.0s)
+[xgb_all] seed=2 f1@0.5=0.814 cost@0.5=0.1824 mismatched=0.1970 rolling_origin=0.1831 (594.0s)
+[xgb_all_graph] seed=0 f1@0.5=0.820 cost@0.5=0.1846 mismatched=0.1941 rolling_origin=0.1803 (763.2s)
+[xgb_all_graph] seed=1 f1@0.5=0.791 cost@0.5=0.1950 mismatched=0.2103 rolling_origin=0.1960 (112.0s)
+[xgb_all_graph] seed=2 f1@0.5=0.819 cost@0.5=0.1837 mismatched=0.1842 rolling_origin=0.1829 (609.8s)
+xgb_local      F1 0.775 +/- 0.004  AUPRC 0.787  post-shutdown F1 0.029  cost@0.5 0.1986  mismatched 0.2148  rolling_origin 0.2101
+xgb_all        F1 0.817 +/- 0.002  AUPRC 0.800  post-shutdown F1 0.029  cost@0.5 0.1805  mismatched 0.1966  rolling_origin 0.1878
+xgb_all_graph  F1 0.810 +/- 0.017  AUPRC 0.803  post-shutdown F1 0.023  cost@0.5 0.1878  mismatched 0.1962  rolling_origin 0.1864

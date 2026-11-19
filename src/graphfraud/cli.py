@@ -30,6 +30,11 @@ def main(argv: list[str] | None = None) -> None:
     r.add_argument("--cost-false-alert", type=float, default=1.0)
     r.add_argument("--max-epochs", type=int, default=200)
     r.add_argument("--n-boot", type=int, default=2000)
+    r.add_argument("--n-jobs", type=int, default=2, help="threads (results depend on it)")
+    r.add_argument(
+        "--no-rolling-threshold", action="store_true",
+        help="skip the rolling-origin refits used to pick a threshold for the deployed model",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "describe":
@@ -43,6 +48,8 @@ def main(argv: list[str] | None = None) -> None:
         gnn=GNNConfig(max_epochs=args.max_epochs),
         n_boot=args.n_boot,
         models=tuple(args.models),
+        rolling_threshold=not args.no_rolling_threshold,
+        n_jobs=args.n_jobs,
     )
     result = run_all(args.raw_dir, args.out_dir, cfg)
     for name, m in result["models"].items():
@@ -50,7 +57,13 @@ def main(argv: list[str] | None = None) -> None:
         print(
             f"{name:14s} F1 {s['f1']['mean']:.3f} +/- {s['f1']['sd']:.3f}  "
             f"AUPRC {s['auprc']['mean']:.3f}  "
-            f"post-shutdown F1 {s['f1_post_shutdown']['mean']:.3f}"
+            f"post-shutdown F1 {s['f1_post_shutdown']['mean']:.3f}  "
+            f"cost@0.5 {s['cost_at_0.5']['mean']:.4f}  "
+            + "  ".join(
+                f"{k} {v['cost']['mean']:.4f}"
+                for k, v in s["threshold_variants"].items()
+                if "cost" in v
+            )
         )
 
 

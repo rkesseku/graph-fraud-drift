@@ -6,12 +6,15 @@ additive attention with a per-destination softmax implemented with ``scatter_red
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 import torch
 from sklearn.metrics import average_precision_score
 from torch import nn
+
+from .boosting import TwoStageResult
 
 
 def undirected_edges(edge_index: np.ndarray, n: int, self_loops: bool) -> torch.Tensor:
@@ -195,11 +198,12 @@ def train_gnn(
     masks: dict[str, np.ndarray],
     seed: int = 0,
     cfg: GNNConfig | None = None,
-) -> tuple[np.ndarray, np.ndarray, int]:
+    refit_masks: Sequence[np.ndarray] = (),
+) -> TwoStageResult:
     """Select the epoch count on the validation block, then refit on the full training window.
 
-    Returns (validation-stage probabilities, final probabilities, chosen epochs) for all nodes.
-    Unlabelled nodes take part in message passing but never in the loss.
+    Unlabelled nodes take part in message passing but never in the loss. ``refit_masks`` are
+    extra training windows on which the final recipe (same epochs and seed) is refit.
     """
     cfg = cfg or GNNConfig()
     graph = build_graph_inputs(edge_index, x.shape[0], kind)
@@ -211,5 +215,11 @@ def train_gnn(
         kind, xt, graph, yt, masks["fit"], cfg, seed, cfg.max_epochs, masks["val"]
     )
     p_val_stage = predict(stage1, xt, graph)
-    final, _ = _fit(kind, xt, graph, yt, masks["train"], cfg, seed, best_epoch)
-    return p_val_stage, predict(final, xt, graph), best_epoch
+
+    def refit(mask: np.ndarray) -> np.ndarray:
+        model, _ = _fit(kind, xt, graph, yt, mask, cfg, seed, best_epoch)
+        return predict(model, xt, graph)
+
+    return TwoStageResult(
+        p_val_stage, refit(masks["train"]), best_epoch, [refit(m) for m in refit_masks]
+    )
