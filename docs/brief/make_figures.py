@@ -45,19 +45,24 @@ def architecture(path: Path) -> None:
     box(ax, 2.4, 0.45, 2.2, 1.0, "Temporal split\nfit 1-29 | val 30-34\ntest 35-49", mid)
     box(ax, 5.1, 2.75, 2.1, 1.0, "XGBoost x3\nlocal / +aggregated /\n+graph features", light)
     box(ax, 5.1, 1.55, 2.1, 0.95, "GraphSAGE, GAT\n(plain PyTorch,\nfull-batch)", warm)
-    box(ax, 5.1, 0.25, 2.1, 1.0, "Validation block\nearly stopping +\ncost threshold", mid)
+    # the split and the validation block apply to all five models, so their arrows end on a
+    # dashed frame around both model boxes; only XGBoost uses the engineered graph features
+    ax.add_patch(FancyBboxPatch((4.95, 1.42), 2.4, 2.46, boxstyle="round,pad=0,rounding_size=0.05",
+                                fc="none", ec="#777777", lw=0.9, ls="--"))
+    ax.text(6.15, 3.95, "all five models", ha="center", fontsize=7.5, color="#555555")
+    box(ax, 5.1, 0.1, 2.1, 0.9, "Validation block\nearly stopping +\ncost threshold", mid)
     box(ax, 7.7, 1.6, 2.2, 1.3, "Test 35-49\nF1, AUPRC, cost,\nper-step drift,\nstep bootstrap CIs",
         light)
     arrow(ax, 1.9, 2.35, 2.4, 3.2)
     arrow(ax, 1.9, 1.9, 2.4, 1.0)
     arrow(ax, 4.6, 3.25, 5.1, 3.25)
-    arrow(ax, 4.6, 1.0, 5.1, 2.0)
-    arrow(ax, 4.6, 0.9, 5.1, 0.75)
-    arrow(ax, 6.15, 1.25, 6.15, 1.55)
+    arrow(ax, 4.6, 1.15, 4.95, 1.8)
+    arrow(ax, 4.6, 0.8, 5.1, 0.55)
+    arrow(ax, 6.15, 1.0, 6.15, 1.42)
     arrow(ax, 7.2, 3.25, 7.7, 2.6)
     arrow(ax, 7.2, 2.0, 7.7, 2.2)
-    note = "Refit on steps 1-34 with the selected trees / epochs, then score the test steps"
-    ax.text(5.0, 4.05, note, fontsize=7.5, color="#555555")
+    note = "Refit on steps 1-34 with the\nselected trees / epochs, then\nscore the test steps"
+    ax.text(8.8, 1.45, note, ha="center", va="top", fontsize=7.5, color="#555555")
     fig.tight_layout()
     fig.savefig(path, dpi=220)
     plt.close(fig)
